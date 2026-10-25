@@ -547,14 +547,19 @@ function subscribeSelectedDay(){
 
 // supabase backend (no Claude login): one table diet_kv(key text primary key, value jsonb, updated_at timestamptz)
 var SB = {url:null, key:null, pending:0, timer:null};
-function sbConfig(){ var c=ls("diet.supabase"); if(!(c&&c.url&&c.key)&&window.DIET_SYNC&&window.DIET_SYNC.url&&window.DIET_SYNC.key) c=window.DIET_SYNC; if(c&&c.url&&c.key){ SB.url=String(c.url).replace(/\/+$/,""); SB.key=c.key; return true; } return false; }
+function sbConfig(){ var c=SB.invite||ls("diet.supabase"); if(!(c&&c.url&&c.key)&&window.DIET_SYNC&&window.DIET_SYNC.url&&window.DIET_SYNC.key) c=window.DIET_SYNC; if(c&&c.url&&c.key){ SB.url=String(c.url).replace(/\/+$/,""); SB.key=c.key; return true; } return false; }
 function b64u(s){ return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
 function unb64u(s){ return decodeURIComponent(escape(atob(s.replace(/-/g,"+").replace(/_/g,"/")))); }
-function takeInviteFromUrl(){ // 邀请链接：…/#sync=<base64url {u,k}>
-  try{ var m=/[#&]sync=([A-Za-z0-9_\-]+)/.exec(location.hash||""); if(!m) return false;
-    var j=JSON.parse(unb64u(m[1])); if(!(j&&j.u&&j.k)) return false;
-    ls("diet.supabase",{url:j.u,key:j.k}); try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
-    SB.invited=true; return true; }catch(e){ return false; }
+function takeInviteFromUrl(){ // 邀请链接：…/#sync=<base64url {u,k}>（也接受 ?sync=）
+  try{ var src=(location.hash||"")+"&"+(location.search||""); var m=/[#&?]sync=([A-Za-z0-9_\-]+)/.exec(src); if(!m) return false;
+    var j=JSON.parse(unb64u(m[1])); if(!(j&&j.u&&j.k)){ toast("邀请链接内容不完整"); return false; }
+    SB.invite={url:j.u,key:j.k};
+    var saved=ls("diet.supabase",{url:j.u,key:j.k});
+    if(!saved) toast("浏览器不允许保存设置（隐私模式或禁用了网站数据），这次能同步，下次还要用邀请链接打开");
+    else toast("已读取邀请链接，正在连接同步…");
+    try{ history.replaceState(null,"",location.pathname); }catch(e){}
+    SB.invited=true; return true; }
+  catch(e){ toast("邀请链接无法解析："+(e&&e.message||e)); return false; }
 }
 function inviteLink(){ var base=location.href.split("#")[0]; return base+"#sync="+b64u(JSON.stringify({u:SB.url,k:SB.key})); }
 function copyInvite(){
@@ -604,7 +609,7 @@ function sbLoadAll(){
 }
 function sbStart(){
   S.mode="supabase"; renderStatus();
-  sbLoadAll().then(function(){ if(SB.invited){ SB.invited=false; toast("已接入共享数据，请新建一个你自己的用户"); openSettings(); $("stNewName").focus(); } }).catch(function(e){ toast("同步读取失败："+e.message); });
+  sbLoadAll().then(function(){ if(SB.invited){ SB.invited=false; toast("已接入共享数据。如果列表里没有你的名字，请新建一个你自己的用户"); openSettings(); $("stNewName").focus(); } }).catch(function(e){ toast("同步读取失败："+e.message); $("statusText").textContent="同步出错，点「目标设置」查看"; });
   if(SB.timer) clearInterval(SB.timer);
   SB.timer=setInterval(function(){ if(document.visibilityState==="visible"&&SB.pending===0) sbLoadAll().catch(function(){}); },30000);
 }
@@ -625,7 +630,7 @@ function sbConnect(){
     return up.then(function(){ st.textContent=remoteEmpty&&hasLocal?"已连接，本机记录已上传。":"已连接。"; sbStart(); toast("已开启 Supabase 同步"); });
   }).catch(function(e){ st.textContent="连接失败："+e.message+"。检查 URL、key，以及 diet_kv 表是否已建好。"; });
 }
-function sbDisconnect(){ ls("diet.supabase",null); if(SB.timer) clearInterval(SB.timer); SB.url=SB.key=null; S.mode="local"; renderStatus(); $("sbStatus").textContent="已断开，数据回到仅本机保存。"; loadLocal(); }
+function sbDisconnect(){ ls("diet.supabase",null); SB.invite=null; if(SB.timer) clearInterval(SB.timer); SB.url=SB.key=null; S.mode="local"; renderStatus(); $("sbStatus").textContent="已断开，数据回到仅本机保存。"; loadLocal(); }
 
 // ---------- backup ----------
 function collectLocalData(){ // everything in this browser's localStorage, all users
