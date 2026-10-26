@@ -320,6 +320,7 @@ textarea.report{width:100%;min-height:180px;border:1px solid var(--line);border-
       <div class="actions">
         <button class="btn primary" id="sbConnect" type="button">连接并同步</button>
         <button class="btn" id="sbInvite" type="button" hidden>复制邀请链接</button>
+        <button class="btn" id="sbAiLink" type="button" hidden>复制 AI 读取链接</button>
         <button class="btn ghost" id="sbDisconnect" type="button" hidden>断开同步</button>
         <span class="hint" id="sbStatus" style="margin:0"></span>
       </div>
@@ -561,6 +562,17 @@ function takeInviteFromUrl(){ // 邀请链接：…/#sync=<base64url {u,k}>（�
     SB.invited=true; return true; }
   catch(e){ toast("邀请链接无法解析："+(e&&e.message||e)); return false; }
 }
+function aiReadLink(){ // 当前用户最近 30 天 + 目标，只读；任何能上网的 AI 打开即可读
+  var start=shiftDate(todayStr(),-29), P="p:"+S.pid+":";
+  return SB.url+"/rest/v1/diet_kv?select=key,value&key=gte."+encodeURIComponent(P+"day:"+start)+"&key=lte."+encodeURIComponent(P+"settings")+"&order=key&apikey="+encodeURIComponent(SB.key);
+}
+function copyAiLink(){
+  if(S.mode!=="supabase"){ toast("先连接同步"); return; }
+  var link=aiReadLink(), st=$("sbStatus");
+  var done=function(){ st.textContent="已复制。把链接发给 ChatGPT 或 Claude，说「读这个链接里的饮食记录给我建议」。"; toast("已复制 AI 读取链接"); };
+  var fail=function(){ $("report").value=link; $("report").hidden=false; $("settingsOverlay").hidden=true; toast("自动复制失败，链接放在「查看文本」框里了"); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done,fail); else fail();
+}
 function inviteLink(){ var base=location.href.split("#")[0]; return base+"#sync="+b64u(JSON.stringify({u:SB.url,k:SB.key})); }
 function copyInvite(){
   if(S.mode!=="supabase"){ toast("先连接同步"); return; }
@@ -674,6 +686,7 @@ function renderStatus(){
   $("syncSec").hidden = S.mode==="cloud";
   $("sbDisconnect").hidden = S.mode!=="supabase";
   $("sbInvite").hidden = S.mode!=="supabase";
+  $("sbAiLink").hidden = S.mode!=="supabase";
 }
 function renderProfiles(){
   var sel=$("profileSel"), html=S.profiles.map(function(p){ return '<option value="'+esc(p.id)+'"'+(p.id===S.pid?" selected":"")+'>'+esc(p.name)+'</option>'; }).join("");
@@ -942,6 +955,7 @@ $("stDelete").onclick=removeCurrentProfile;
 $("sbConnect").onclick=sbConnect;
 $("sbDisconnect").onclick=sbDisconnect;
 $("sbInvite").onclick=copyInvite;
+$("sbAiLink").onclick=copyAiLink;
 $("btnExport").onclick=function(){ $("settingsOverlay").hidden=true; exportJSON(); };
 $("btnImport").onclick=function(){ $("importFile").click(); };
 $("importFile").onchange=function(){ if(this.files&&this.files[0]){ importJSON(this.files[0]); this.value=""; $("settingsOverlay").hidden=true; } };
