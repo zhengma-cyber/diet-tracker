@@ -322,6 +322,7 @@ textarea.report{width:100%;min-height:180px;border:1px solid var(--line);border-
         <button class="btn primary" id="sbConnect" type="button">连接并同步</button>
         <button class="btn" id="sbInvite" type="button" hidden>复制邀请链接</button>
         <button class="btn" id="sbAiLink" type="button" hidden>复制 AI 读取链接</button>
+        <button class="btn" id="sbHealthUrl" type="button" hidden>复制健康快捷指令网址</button>
         <button class="btn ghost" id="sbDisconnect" type="button" hidden>断开同步</button>
         <span class="hint" id="sbStatus" style="margin:0"></span>
       </div>
@@ -574,6 +575,14 @@ function copyAiLink(){
   var fail=function(){ $("report").value=link; $("report").hidden=false; $("settingsOverlay").hidden=true; toast("自动复制失败，链接放在「查看文本」框里了"); };
   if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done,fail); else fail();
 }
+function healthUrl(){ return SB.url+"/rest/v1/rpc/health_summary?username="+encodeURIComponent(S.pid)+"&apikey="+encodeURIComponent(SB.key)+"&q="; }
+function copyHealthUrl(){
+  if(S.mode!=="supabase"){ toast("先连接同步"); return; }
+  var link=healthUrl(), st=$("sbStatus"), pr=profile();
+  var done=function(){ st.textContent="已复制「"+(pr?pr.name:"")+"」的快捷指令网址。到快捷指令第 1 个动作里粘贴，再在末尾 q= 后面插入「快捷指令输入」。"; toast("已复制快捷指令网址"); };
+  var fail=function(){ $("report").value=link; $("report").hidden=false; $("settingsOverlay").hidden=true; toast("自动复制失败，网址放在「查看文本」框里了"); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done,fail); else fail();
+}
 function inviteLink(){ var base=location.href.split("#")[0]; return base+"#sync="+b64u(JSON.stringify({u:SB.url,k:SB.key})); }
 function copyInvite(){
   if(S.mode!=="supabase"){ toast("先连接同步"); return; }
@@ -688,6 +697,7 @@ function renderStatus(){
   $("sbDisconnect").hidden = S.mode!=="supabase";
   $("sbInvite").hidden = S.mode!=="supabase";
   $("sbAiLink").hidden = S.mode!=="supabase";
+  $("sbHealthUrl").hidden = S.mode!=="supabase";
 }
 function renderProfiles(){
   var sel=$("profileSel"), html=S.profiles.map(function(p){ return '<option value="'+esc(p.id)+'"'+(p.id===S.pid?" selected":"")+'>'+esc(p.name)+'</option>'; }).join("");
@@ -960,6 +970,7 @@ $("sbConnect").onclick=sbConnect;
 $("sbDisconnect").onclick=sbDisconnect;
 $("sbInvite").onclick=copyInvite;
 $("sbAiLink").onclick=copyAiLink;
+$("sbHealthUrl").onclick=copyHealthUrl;
 $("btnExport").onclick=function(){ $("settingsOverlay").hidden=true; exportJSON(); };
 $("btnImport").onclick=function(){ $("importFile").click(); };
 $("importFile").onchange=function(){ if(this.files&&this.files[0]){ importJSON(this.files[0]); this.value=""; $("settingsOverlay").hidden=true; } };
