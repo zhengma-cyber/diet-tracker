@@ -193,6 +193,7 @@ textarea.report{width:100%;min-height:180px;border:1px solid var(--line);border-
         </div>
         <div class="tip" id="tip">正在读取记录…</div>
         <div class="goal" id="goalLine"></div>
+        <div class="actions" id="healthRow" hidden><button class="btn small" id="btnHealth" type="button">同步这天到 Apple Health</button><span class="hint" style="margin:0">需要先按 README 建好快捷指令「同步饮食到健康」</span></div>
       </section>
 
       <section class="card" id="record">
@@ -944,6 +945,8 @@ $("btnShowReport").onclick=function(){ var t=$("report"); t.value=buildReport();
 $("btnAsk").onclick=askClaude;
 $("btnStop").onclick=function(){ if(askCtl) askCtl.abort(); };
 $("btnSettings").onclick=openSettings;
+if(/iPhone|iPad|iPod/.test(navigator.userAgent)) $("healthRow").hidden=false;
+$("btnHealth").onclick=function(){ var pr=profile(); location.href="shortcuts://run-shortcut?name="+encodeURIComponent("同步饮食到健康")+"&input=text&text="+encodeURIComponent((pr?pr.name:"")+" "+S.date); };
 $("stClose").onclick=function(){ $("settingsOverlay").hidden=true; };
 $("settingsOverlay").onclick=function(e){ if(e.target===this) this.hidden=true; };
 $("stSave").onclick=saveSettingsFromForm;
