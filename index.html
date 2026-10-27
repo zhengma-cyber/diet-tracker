@@ -946,7 +946,7 @@ $("btnAsk").onclick=askClaude;
 $("btnStop").onclick=function(){ if(askCtl) askCtl.abort(); };
 $("btnSettings").onclick=openSettings;
 if(/iPhone|iPad|iPod/.test(navigator.userAgent)) $("healthRow").hidden=false;
-$("btnHealth").onclick=function(){ var pr=profile(); location.href="shortcuts://run-shortcut?name="+encodeURIComponent("同步饮食到健康")+"&input=text&text="+encodeURIComponent((pr?pr.name:"")+" "+S.date); };
+$("btnHealth").onclick=function(){ location.href="shortcuts://run-shortcut?name="+encodeURIComponent("同步饮食到健康")+"&input=text&text="+encodeURIComponent(S.pid+"_"+S.date); }; // 传用户 id 和日期，纯 ASCII，快捷指令拼 URL 不会出错
 $("stClose").onclick=function(){ $("settingsOverlay").hidden=true; };
 $("settingsOverlay").onclick=function(e){ if(e.target===this) this.hidden=true; };
 $("stSave").onclick=saveSettingsFromForm;
