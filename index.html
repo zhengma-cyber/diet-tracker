@@ -323,6 +323,7 @@ textarea.report{width:100%;min-height:180px;border:1px solid var(--line);border-
         <button class="btn" id="sbInvite" type="button" hidden>复制邀请链接</button>
         <button class="btn" id="sbAiLink" type="button" hidden>复制 AI 读取链接</button>
         <button class="btn" id="sbHealthUrl" type="button" hidden>复制健康快捷指令网址</button>
+        <button class="btn" id="sbHealthFile" type="button" hidden>下载快捷指令配置文件</button>
         <button class="btn ghost" id="sbDisconnect" type="button" hidden>断开同步</button>
         <span class="hint" id="sbStatus" style="margin:0"></span>
       </div>
@@ -583,6 +584,12 @@ function copyHealthUrl(){
   var fail=function(){ $("report").value=link; $("report").hidden=false; $("settingsOverlay").hidden=true; toast("自动复制失败，网址放在「查看文本」框里了"); };
   if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done,fail); else fail();
 }
+function downloadHealthFile(){ // 存成 health.txt，放进 iCloud 云盘/Shortcuts 后，快捷指令用「获取文件」读它，不用打字也不用粘贴
+  if(S.mode!=="supabase"){ toast("先连接同步"); return; }
+  var pr=profile(), name="health-"+(pr?pr.name:"user")+".txt";
+  try{ var a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([healthUrl()],{type:"text/plain"})); a.download=name; document.body.appendChild(a); a.click(); a.remove(); $("sbStatus").textContent="已下载 "+name+"。在「文件」App 里把它移到 iCloud 云盘 → Shortcuts 文件夹，快捷指令里用「获取文件」读取。"; toast("已下载 "+name); }
+  catch(e){ $("report").value=healthUrl(); $("report").hidden=false; $("settingsOverlay").hidden=true; toast("浏览器不允许下载，网址放在「查看文本」框里了"); }
+}
 function inviteLink(){ var base=location.href.split("#")[0]; return base+"#sync="+b64u(JSON.stringify({u:SB.url,k:SB.key})); }
 function copyInvite(){
   if(S.mode!=="supabase"){ toast("先连接同步"); return; }
@@ -698,6 +705,7 @@ function renderStatus(){
   $("sbInvite").hidden = S.mode!=="supabase";
   $("sbAiLink").hidden = S.mode!=="supabase";
   $("sbHealthUrl").hidden = S.mode!=="supabase";
+  $("sbHealthFile").hidden = S.mode!=="supabase";
 }
 function renderProfiles(){
   var sel=$("profileSel"), html=S.profiles.map(function(p){ return '<option value="'+esc(p.id)+'"'+(p.id===S.pid?" selected":"")+'>'+esc(p.name)+'</option>'; }).join("");
@@ -971,6 +979,7 @@ $("sbDisconnect").onclick=sbDisconnect;
 $("sbInvite").onclick=copyInvite;
 $("sbAiLink").onclick=copyAiLink;
 $("sbHealthUrl").onclick=copyHealthUrl;
+$("sbHealthFile").onclick=downloadHealthFile;
 $("btnExport").onclick=function(){ $("settingsOverlay").hidden=true; exportJSON(); };
 $("btnImport").onclick=function(){ $("importFile").click(); };
 $("importFile").onchange=function(){ if(this.files&&this.files[0]){ importJSON(this.files[0]); this.value=""; $("settingsOverlay").hidden=true; } };
