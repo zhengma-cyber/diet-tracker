@@ -385,7 +385,8 @@ textarea.report{width:100%;min-height:180px;border:1px solid var(--line);border-
           <h2>活动 <span class="sub-lbl" id="actInfo"></span></h2>
           <div class="fgrid" style="grid-template-columns:1fr 1fr">
             <div><label for="actSteps">步数</label><input class="input" id="actSteps" type="number" inputmode="numeric" min="0" placeholder="8000"></div>
-            <div><label for="actKcal">活动消耗 kcal（手表）</label><input class="input" id="actKcal" type="number" inputmode="numeric" min="0" placeholder="400"></div>
+            <div><label for="actKcal">活动能量 kcal（手表）</label><input class="input" id="actKcal" type="number" inputmode="numeric" min="0" placeholder="400"></div>
+            <div><label for="actRest">静息能量 kcal（手表）</label><input class="input" id="actRest" type="number" inputmode="numeric" min="0" placeholder="1800"></div>
           </div>
           <div class="actions"><button class="btn primary" id="btnSaveAct" type="button">保存活动</button></div>
         </section>
@@ -410,12 +411,16 @@ textarea.report{width:100%;min-height:180px;border:1px solid var(--line);border-
           <h2>趋势 <span class="ranges"><button class="rangebtn" data-days="14" type="button">2 周</button><button class="rangebtn on" data-days="28" type="button">4 周</button><button class="rangebtn" data-days="84" type="button">12 周</button></span></h2>
           <div class="hint" id="chartNote" style="margin:0"></div>
           <div style="font-size:12px;font-weight:700;color:var(--fg-2);margin-top:8px">体重与 7 日均线</div><div class="chart"><canvas id="chWeight"></canvas></div>
-          <div style="font-size:12px;font-weight:700;color:var(--fg-2);margin-top:16px">摄入 vs 估算消耗</div><div class="chart"><canvas id="chEnergy"></canvas></div>
+          <div style="font-size:12px;font-weight:700;color:var(--fg-2);margin-top:16px">摄入 vs 估算消耗（悬停看缺口、静息、活动）</div><div class="chart"><canvas id="chEnergy"></canvas></div>
           <div style="font-size:12px;font-weight:700;color:var(--fg-2);margin-top:16px">睡眠时长（红色 = 质量 ≤ 2）</div><div class="chart"><canvas id="chSleep"></canvas></div>
           <div style="font-size:12px;font-weight:700;color:var(--fg-2);margin-top:16px">每周训练部位次数</div><div class="chart"><canvas id="chTrain"></canvas></div>
         </section>
       </div>
       <div class="col">
+        <section class="card">
+          <h2>消耗校准</h2>
+          <div id="calib"></div>
+        </section>
         <section class="card">
           <h2>本周 vs 上周</h2>
           <div class="wstats" id="weekStats"></div>
@@ -843,12 +848,25 @@ function calcTargets(b){
   var p=r0(w*pPerKg), f=r0(kcal*fatPct/9), c=Math.max(0,r0((kcal-p*4-f*9)/4));
   return {bmr:r0(bmr),tdee:r0(tdee),kcal:r0(kcal),p:p,c:c,f:f,fib:r0(kcal/1000*14)};
 }
-function expenditure(date){ var st=S.settings, b=calcBMR(st), a=rec("activity",date); if(b!=null&&a&&+a.active_kcal>0) return r0(b*1.2+ +a.active_kcal); if(+st.tdee>0) return r0(+st.tdee); if(b==null) return null; return r0(b*(+st.activity||1.375)); }
-function expMethod(date){ var st=S.settings, b=calcBMR(st), a=rec("activity",date); if(b!=null&&a&&+a.active_kcal>0) return "消耗 = 基础代谢 × 1.2 + 手表活动消耗"; if(+st.tdee>0) return "无手表数据，按设定的日消耗 "+r0(+st.tdee)+" kcal"; if(b==null) return "在设置里填身高体重年龄或日消耗后可估算"; return "消耗 = 基础代谢 × 活动系数"; }
+// 日消耗估算，按优先级：苹果静息+活动 → 基础代谢+活动+食物热效应 → 手动设定日消耗 → 基础代谢×活动系数
+function expInfo(date){ var st=S.settings, b=calcBMR(st), a=rec("activity",date)||{}, rest=+a.rest_kcal||0, act=+a.active_kcal||0, intake=totals(dayOf(date).entries).kcal;
+  if(rest>0&&act>0){ if(date===todayStr()&&b!=null&&rest<b) rest=b; return {exp:r0(rest+act), method:"消耗 = Apple 静息能量 + 活动能量"+(date===todayStr()?"（今天的静息按全天估）":"")}; }
+  if(act>0&&b!=null) return {exp:r0(b+act+0.1*intake), method:"消耗 = 基础代谢 + 手表活动能量 + 食物热效应 10%"};
+  if(+st.tdee>0) return {exp:r0(+st.tdee), method:"无手表数据，按设定的日消耗 "+r0(+st.tdee)+" kcal"};
+  if(b==null) return {exp:null, method:"在设置里填身高体重年龄或日消耗后可估算"};
+  return {exp:r0(b*(+st.activity||1.375)), method:"消耗 = 基础代谢 × 活动系数"}; }
+function expenditure(date){ return expInfo(date).exp; }
+function expMethod(date){ return expInfo(date).method; }
+function calibration(days){ var ser=series(days), n=ser.length; if(n<14) return {ok:false,reason:"需要至少 14 天"};
+  var sw=0,swn=0,swi=0,ew=0,ewn=0,ewi=0,si=0,sin=0;
+  ser.forEach(function(x,i){ if(x.kg!=null){ if(i<7){ sw+=x.kg; swn++; swi+=i; } if(i>=n-7){ ew+=x.kg; ewn++; ewi+=i; } } if(x.logged){ si+=x.kcal; sin++; } });
+  if(swn<3||ewn<3) return {ok:false,reason:"窗口开头和结尾各需要至少 3 天体重记录"}; if(sin<10) return {ok:false,reason:"需要至少 10 天饮食记录"};
+  var span=ewi/ewn-swi/swn, chg=ew/ewn-sw/swn; if(span<=0) return {ok:false,reason:"时间跨度不足"};
+  return {ok:true,days:n,logged:sin,avgIntake:r0(si/sin),startKg:sw/swn,endKg:ew/ewn,changeKg:chg,span:r0(span),tdee:r0(si/sin-chg*7700/span)}; }
 function weightKg(date){ var w=rec("weight",date); return w&&w.kg!=null?+w.kg:null; }
 function weightMA(date){ var s=0,n=0; for(var i=0;i<7;i++){ var w=weightKg(shiftDate(date,-i)); if(w!=null){ s+=w; n++; } } return n?s/n:null; }
 function series(days){ var out=[], today=todayStr(); for(var i=days-1;i>=0;i--){ var d=shiftDate(today,-i), t=totals(dayOf(d).entries), sl=rec("sleep",d), ac=rec("activity",d), wo=rec("workout",d), ex=expenditure(d);
-  out.push({date:d, kcal:t.kcal, p:t.p, c:t.c, f:t.f, fib:t.fib, logged:dayOf(d).entries.length>0, exp:ex, deficit:(ex!=null&&t.kcal>0)?ex-t.kcal:null, kg:weightKg(d), ma:weightMA(d), sleep:sl?+sl.minutes||null:null, quality:sl?+sl.quality||null:null, steps:ac?+ac.steps||null:null, active:ac?+ac.active_kcal||null:null, parts:wo&&!wo.rest?(wo.parts||[]):[], rest:!!(wo&&wo.rest), woMin:wo?+wo.duration||null:null}); } return out; }
+  out.push({date:d, kcal:t.kcal, p:t.p, c:t.c, f:t.f, fib:t.fib, logged:dayOf(d).entries.length>0, exp:ex, deficit:(ex!=null&&t.kcal>0)?ex-t.kcal:null, kg:weightKg(d), ma:weightMA(d), sleep:sl?+sl.minutes||null:null, quality:sl?+sl.quality||null:null, steps:ac?+ac.steps||null:null, active:ac?+ac.active_kcal||null:null, rest:ac?+ac.rest_kcal||null:null, parts:wo&&!wo.rest?(wo.parts||[]):[], rest:!!(wo&&wo.rest), woMin:wo?+wo.duration||null:null}); } return out; }
 function avg(arr,k){ var s=0,n=0; arr.forEach(function(x){ if(x[k]!=null&&x[k]!==0){ s+=x[k]; n++; } }); return n?s/n:null; }
 function weekStats(ws){ var days=[]; for(var i=0;i<7;i++){ var d=shiftDate(ws,i); if(d>todayStr()) break; days.push(d); } var ser=days.map(function(d){ return series(1)[0].date===d?series(1)[0]:null; });
   // 直接按日期重新构造，避免 series(1) 只含今天
@@ -902,7 +920,7 @@ function renderToday(){
   // tiles
   var sl=rec("sleep",S.date), ac=rec("activity",S.date), wo=rec("workout",S.date), wt=rec("weight",S.date), ma=weightMA(S.date);
   $("tileSleep").innerHTML = tile("睡眠", sl&&sl.minutes!=null?minsToH(sl.minutes)+"<small>小时</small>":"—", sl?((sl.bed?esc(sl.bed):"")+(sl.wake?" → "+esc(sl.wake):"")+(sl.quality?" · 质量 "+stars(sl.quality):"")+(sl.source==="apple_health"?" · 来自健康":"")):"未记录，点此记录", "body");
-  $("tileAct").innerHTML = tile("活动", ac&&ac.steps!=null?(+ac.steps).toLocaleString()+"<small>步</small>":(ac&&ac.active_kcal?r0(ac.active_kcal)+"<small>kcal</small>":"—"), ac?((ac.active_kcal?"活动消耗 "+r0(ac.active_kcal)+" kcal":"")+(ac.steps!=null&&st.stepsTarget?" · 目标 "+(+st.stepsTarget).toLocaleString():"")):"未记录，点此记录", "body");
+  $("tileAct").innerHTML = tile("活动", ac&&ac.steps!=null?(+ac.steps).toLocaleString()+"<small>步</small>":(ac&&ac.active_kcal?r0(ac.active_kcal)+"<small>kcal</small>":"—"), ac?((ac.active_kcal?"活动 "+r0(ac.active_kcal)+" kcal":"")+(ac.rest_kcal?" · 静息 "+r0(ac.rest_kcal):"")+(ac.steps!=null&&st.stepsTarget?" · 目标 "+(+st.stepsTarget).toLocaleString():"")):"未记录，点此记录", "body");
   $("tileTrain").innerHTML = tile("训练", wo?(wo.rest?"休息日":(wo.parts||[]).join(" · ")||"已记录"):"—", wo&&!wo.rest?((wo.duration?wo.duration+" 分钟":"")+(wo.rpe?" · RPE "+wo.rpe:"")+((wo.exercises||[]).length?" · "+wo.exercises.length+" 个动作":"")):(wo?"":"未记录，点此记录"), "train", true);
   $("tileWeight").innerHTML = tile("体重", wt&&wt.kg!=null?kgToUnit(+wt.kg)+"<small>"+unitLbl()+"</small>":"—", (ma!=null?"7 日均 "+kgToUnit(ma)+" "+unitLbl():"")+(wt&&wt.waist?" · 腰围 "+wt.waist+" cm":"")+(!wt?"未记录，点此记录":""), "body");
 }
@@ -983,8 +1001,8 @@ function renderBody(){
   if(document.activeElement!==$("slBed")) $("slBed").value = sl&&sl.bed?sl.bed:""; if(document.activeElement!==$("slWake")) $("slWake").value = sl&&sl.wake?sl.wake:""; if(document.activeElement!==$("slNote")) $("slNote").value = sl&&sl.note?sl.note:"";
   S.slQuality = sl&&sl.quality?+sl.quality:0; renderStars();
   $("slInfo").textContent = sl?(sl.minutes!=null?"这天睡了 "+minsToHM(sl.minutes):"")+(sl.source==="apple_health"?"（来自 Apple Health"+(sl.basis==="in_bed"?"，按在床时间":"")+"）":""):"这天还没有睡眠记录。目标 "+st.sleepTarget+" 小时。";
-  if(document.activeElement!==$("actSteps")) $("actSteps").value = ac&&ac.steps!=null?ac.steps:""; if(document.activeElement!==$("actKcal")) $("actKcal").value = ac&&ac.active_kcal!=null?ac.active_kcal:"";
-  $("actInfo").textContent = ac?(ac.source==="apple_health"?"来自 Apple Health，可手动修改。":"已记录。"):"步数目标 "+(+st.stepsTarget).toLocaleString()+"。有 Apple Watch 的话填活动消耗，消耗估算会更准。";
+  if(document.activeElement!==$("actSteps")) $("actSteps").value = ac&&ac.steps!=null?ac.steps:""; if(document.activeElement!==$("actKcal")) $("actKcal").value = ac&&ac.active_kcal!=null?ac.active_kcal:""; if(document.activeElement!==$("actRest")) $("actRest").value = ac&&ac.rest_kcal!=null?ac.rest_kcal:"";
+  $("actInfo").textContent = ac?(ac.source==="apple_health"?"来自 Apple Health，可手动修改。":"已记录。"):"步数目标 "+(+st.stepsTarget).toLocaleString()+"。有 Apple Watch 的话填静息和活动能量，消耗就用苹果的数。";
   var last=null; KINDS.forEach(function(k){ Object.keys(S.recs[k]).forEach(function(d){ var r=S.recs[k][d]; if(r&&r.imported_at&&(!last||r.imported_at>last)) last=r.imported_at; }); });
   $("importInfo").textContent = last?"上次从 Apple Health 导入："+String(last).slice(0,16).replace("T"," "):"还没有从 Apple Health 导入过数据。";
 }
@@ -994,7 +1012,7 @@ function saveSleep(){ var bed=$("slBed").value, wake=$("slWake").value, q=S.slQu
   if(bed&&wake){ var b=bed.split(":"), w=wake.split(":"); mins=(+w[0]*60+ +w[1])-(+b[0]*60+ +b[1]); if(mins<=0) mins+=1440; }
   if(mins==null&&!q){ toast("填入睡和起床时间，或选质量"); return; }
   saveRec("sleep",S.date,Object.assign({},old,{date:S.date,bed:bed||old.bed||null,wake:wake||old.wake||null,minutes:mins,quality:q,note:note||null,source:(bed&&wake)?"manual":(old.source||"manual"),at:new Date().toISOString()})); renderAll(); toast("睡眠已保存"); }
-function saveActivity(){ var s=$("actSteps").value, k=$("actKcal").value; if(s===""&&k===""){ toast("填步数或活动消耗"); return; } var old=rec("activity",S.date)||{}; saveRec("activity",S.date,Object.assign({},old,{date:S.date,steps:s!==""?+s:(old.steps||null),active_kcal:k!==""?+k:(old.active_kcal||null),source:"manual",at:new Date().toISOString()})); renderAll(); toast("活动已保存"); }
+function saveActivity(){ var s=$("actSteps").value, k=$("actKcal").value, rk=$("actRest").value; if(s===""&&k===""&&rk===""){ toast("填步数、活动消耗或静息消耗"); return; } var old=rec("activity",S.date)||{}; saveRec("activity",S.date,Object.assign({},old,{date:S.date,steps:s!==""?+s:(old.steps||null),active_kcal:k!==""?+k:(old.active_kcal||null),rest_kcal:rk!==""?+rk:(old.rest_kcal||null),source:"manual",at:new Date().toISOString()})); renderAll(); toast("活动已保存"); }
 
 // --- 趋势 ---
 function destroyCharts(){ Object.keys(S.charts).forEach(function(k){ try{ S.charts[k].destroy(); }catch(e){} }); S.charts={}; }
@@ -1014,6 +1032,9 @@ function renderTrend(){
     ["平均体重", cmp(cur.kg,prev.kg,function(x){ return kgToUnit(x)+" "+unitLbl(); },false)],
     ["训练天数", cur.train+" 天"+(Object.keys(cur.parts).length?"（"+Object.keys(cur.parts).join("、")+"）":"")]
   ].map(function(r){ return '<div class="ws"><span>'+r[0]+'</span><b>'+r[1]+'</b></div>'; }).join("");
+  var cal=calibration(Math.max(S.range,28)); var calEl=$("calib");
+  if(cal.ok){ var dir=cal.changeKg<0?"降":"升"; calEl.innerHTML='<div class="ws" style="margin-bottom:8px"><span>反推的实际日消耗（最近 '+cal.days+' 天）</span><b>'+cal.tdee.toLocaleString()+' kcal</b></div><div class="hint" style="margin:0">这 '+cal.days+' 天里有 '+cal.logged+' 天饮食记录，平均摄入 '+cal.avgIntake.toLocaleString()+' kcal；体重 7 日均线从 '+kgToUnit(cal.startKg)+' 到 '+kgToUnit(cal.endKg)+' '+unitLbl()+'（'+dir+' '+kgToUnit(Math.abs(cal.changeKg))+'），跨度约 '+cal.span+' 天。按 7700 kcal/kg 换算得到消耗。水分波动会带来误差，窗口越长越准。</div>'+(+S.settings.tdee!==cal.tdee?'<div class="actions"><button class="btn small" id="btnUseCal" type="button">把 '+cal.tdee+' 设为无手表日的消耗</button></div>':'<div class="hint">当前无手表日的消耗设置就是这个值。</div>'); var ub=$("btnUseCal"); if(ub) ub.onclick=function(){ S.settings.tdee=cal.tdee; saveProfile(); renderAll(); toast("已设为 "+cal.tdee+" kcal"); }; }
+  else calEl.innerHTML='<div class="hint" style="margin:0">还不能校准：'+esc(cal.reason)+'。坚持每天记饮食和空腹体重，两周后这里会出现按体重变化反推的实际消耗，比任何公式都准。</div>';
   var wk=isoWeek(today), rep=S.weekly[wk]; $("weeklyReport").innerHTML = rep&&rep.text?'<div class="advice"><small>'+esc(rep.from||"AI")+' 的周报 · '+esc(wk)+(rep.at?"（"+String(rep.at).slice(5,16).replace("T"," ")+"）":"")+'</small>'+esc(rep.text)+'</div>':'<div class="hint">本周还没有周报。点「生成本周报告」让 Claude 写，或「复制本周数据」发给任何 AI。</div>';
   $("btnWeekAsk").hidden = !S.sample;
   if(!window.Chart){ $("chartNote").textContent="图表库没有加载（需要联网）。"; return; } $("chartNote").textContent="";
@@ -1025,7 +1046,7 @@ function renderTrend(){
   var wvals=ser.map(function(x){ return x.kg!=null?kgToUnit(x.kg):null; }), mvals=ser.map(function(x){ return x.ma!=null?kgToUnit(x.ma):null; }); var hasW=wvals.some(function(v){ return v!=null; });
   var wbase=JSON.parse(JSON.stringify(base)); if(hasW){ var vals=wvals.concat(mvals).filter(function(v){ return v!=null; }); var mn=Math.min.apply(null,vals), mx=Math.max.apply(null,vals); wbase.scales.y.suggestedMin=Math.floor(mn-1); wbase.scales.y.suggestedMax=Math.ceil(mx+1); }
   mk("chWeight",{type:"line",data:{labels:labels,datasets:[{label:"体重 "+unitLbl(),data:wvals,borderColor:p,backgroundColor:p,pointRadius:3,borderWidth:1.5,spanGaps:true,tension:.2},{label:"7 日均线",data:mvals,borderColor:accent,borderWidth:2.5,pointRadius:0,spanGaps:true,tension:.3}]},options:wbase});
-  var ebase=JSON.parse(JSON.stringify(base)); ebase.plugins.tooltip={callbacks:{afterBody:function(items){ var i=items[0].dataIndex, x=ser[i]; return x.deficit!=null?("缺口 "+(x.deficit>0?"−":"+")+r0(Math.abs(x.deficit))+" kcal"):""; }}};
+  var ebase=JSON.parse(JSON.stringify(base)); ebase.plugins.tooltip={callbacks:{afterBody:function(items){ var i=items[0].dataIndex, x=ser[i]; var l=[]; if(x.deficit!=null) l.push("缺口 "+(x.deficit>0?"−":"+")+r0(Math.abs(x.deficit))+" kcal"); if(x.rest) l.push("静息 "+r0(x.rest)); if(x.active) l.push("活动 "+r0(x.active)); return l.join("  "); }}};
   mk("chEnergy",{type:"bar",data:{labels:labels,datasets:[{type:"line",label:"估算消耗",data:ser.map(function(x){ return x.exp; }),borderColor:f,borderDash:[4,4],borderWidth:2,pointRadius:0,spanGaps:true},{label:"摄入",data:ser.map(function(x){ return x.logged?r0(x.kcal):null; }),backgroundColor:accent,borderRadius:4,maxBarThickness:18},{type:"line",label:"目标",data:ser.map(function(){ return st.kcal; }),borderColor:muted,borderWidth:1,pointRadius:0}]},options:ebase});
   mk("chSleep",{type:"bar",data:{labels:labels,datasets:[{label:"睡眠小时",data:ser.map(function(x){ return x.sleep!=null?+minsToH(x.sleep):null; }),backgroundColor:ser.map(function(x){ return x.quality&&x.quality<=2?f:fib; }),borderRadius:4,maxBarThickness:18},{type:"line",label:"目标 "+st.sleepTarget+" 小时",data:ser.map(function(){ return st.sleepTarget; }),borderColor:muted,borderDash:[4,4],borderWidth:1,pointRadius:0}]},options:Object.assign(JSON.parse(JSON.stringify(base)),{plugins:{legend:{display:true,labels:{boxWidth:10,boxHeight:10,usePointStyle:true}},tooltip:{callbacks:{afterBody:function(items){ var x=ser[items[0].dataIndex]; return (x.quality?"质量 "+stars(x.quality):"")+(x.steps!=null?"  步数 "+x.steps.toLocaleString():""); }}}}})});
   // 训练：按周堆叠
@@ -1082,7 +1103,7 @@ function buildReport(){
   if(!day.entries.length) L.push("（这天还没有饮食记录）");
   MEAL_ORDER.forEach(function(m){ var es=day.entries.filter(function(e){ return e.meal===m; }); if(!es.length) return; L.push("- "+MEALS[m]+"："+es.map(function(e){ return e.name+" "+e.grams+(e.unit==="份"?" 份":"g")+"（"+r0(e.kcal)+" kcal，蛋白 "+r1(e.p)+"，碳水 "+r1(e.c)+"，脂肪 "+r1(e.f)+"）"; }).join("；")); });
   var sl=rec("sleep",S.date), ac=rec("activity",S.date), wo=rec("workout",S.date), wt=rec("weight",S.date), ex=expenditure(S.date);
-  L.push("- 其他："+[ex!=null?"估算消耗 "+ex+" kcal":null, sl&&sl.minutes!=null?"睡眠 "+minsToHM(sl.minutes)+(sl.bed?"（"+sl.bed+" → "+sl.wake+"）":"")+(sl.quality?"，质量 "+sl.quality+"/5":""):"睡眠未记录", ac?((ac.steps!=null?ac.steps+" 步":"")+(ac.active_kcal?"，活动消耗 "+r0(ac.active_kcal)+" kcal":"")):"活动未记录", wo?(wo.rest?"休息日":"训练 "+(wo.parts||[]).join("/")+(wo.duration?" "+wo.duration+" 分钟":"")+(wo.rpe?" RPE "+wo.rpe:"")+((wo.exercises||[]).length?"："+wo.exercises.map(function(e){ return e.name+" "+(e.sets||"?")+"×"+(e.reps||"?")+(e.weight?"@"+e.weight:""); }).join("，"):"")):"训练未记录", wt&&wt.kg!=null?"体重 "+kgToUnit(+wt.kg)+" "+unitLbl():null].filter(Boolean).join("；"));
+  L.push("- 其他："+[ex!=null?"估算消耗 "+ex+" kcal（"+expMethod(S.date).replace("消耗 = ","")+"）":null, sl&&sl.minutes!=null?"睡眠 "+minsToHM(sl.minutes)+(sl.bed?"（"+sl.bed+" → "+sl.wake+"）":"")+(sl.quality?"，质量 "+sl.quality+"/5":""):"睡眠未记录", ac?((ac.steps!=null?ac.steps+" 步":"")+(ac.active_kcal?"，活动能量 "+r0(ac.active_kcal)+" kcal":"")+(ac.rest_kcal?"，静息能量 "+r0(ac.rest_kcal)+" kcal":"")):"活动未记录", wo?(wo.rest?"休息日":"训练 "+(wo.parts||[]).join("/")+(wo.duration?" "+wo.duration+" 分钟":"")+(wo.rpe?" RPE "+wo.rpe:"")+((wo.exercises||[]).length?"："+wo.exercises.map(function(e){ return e.name+" "+(e.sets||"?")+"×"+(e.reps||"?")+(e.weight?"@"+e.weight:""); }).join("，"):"")):"训练未记录", wt&&wt.kg!=null?"体重 "+kgToUnit(+wt.kg)+" "+unitLbl():null].filter(Boolean).join("；"));
   L.push(""); L.push("【最近 7 天】"); for(var i=6;i>=0;i--) L.push(dayLine(shiftDate(todayStr(),-i)));
   L.push(""); L.push("请作为营养与训练顾问，结合我的"+(GOALS[st.goal]||"减脂")+"目标给建议：1）今天剩余的热量和宏量怎么安排，给具体食物和克数；2）对今天已吃、睡眠、训练的评价；3）最近几天的趋势和一条最重要的改进建议。请用中文，分点，简洁。");
   return L.join("\n");
