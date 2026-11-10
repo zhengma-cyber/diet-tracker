@@ -474,6 +474,9 @@ textarea.report{width:100%;min-height:180px;border:1px solid var(--line);border-
         <div><label for="stFib">膳食纤维 g</label><input class="input" id="stFib" type="number" inputmode="numeric" min="0"></div>
       </div>
       <div class="pct" id="stPct"></div>
+      <div class="fgrid" style="grid-template-columns:1fr">
+        <div><label for="stTdee">无手表数据时的日消耗 kcal（留空则按基础代谢 × 活动系数估算）</label><input class="input" id="stTdee" type="number" inputmode="numeric" min="0" step="50" placeholder="如 2500"></div>
+      </div>
       <div class="fgrid">
         <div><label for="stUnit">体重单位</label><select class="input" id="stUnit"><option value="kg">kg</option><option value="lb">lb</option></select></div>
         <div><label for="stSleepT">睡眠目标 小时</label><input class="input" id="stSleepT" type="number" inputmode="decimal" step="0.5" min="4" max="12"></div>
@@ -567,7 +570,7 @@ var GOALS = {cut:"减脂",maintain:"维持",bulk:"增肌"};
 var PARTS = ["胸","背","肩","腿","臀","二头","三头","核心","有氧"];
 var PART_COLORS = {"胸":"#2a78d6","背":"#eb6834","肩":"#1baf7a","腿":"#eda100","臀":"#e87ba4","二头":"#008300","三头":"#6250d6","核心":"#e34948","有氧":"#898781"};
 var KINDS = ["day","sleep","activity","workout","weight"];
-var DEFAULT_SETTINGS = {kcal:2000,p:140,c:200,f:65,fib:28,sex:"m",age:null,height:null,weight:null,activity:1.375,goal:"cut",unit:"kg",sleepTarget:7.5,stepsTarget:8000,trainTarget:4};
+var DEFAULT_SETTINGS = {kcal:2000,p:140,c:200,f:65,fib:28,sex:"m",age:null,height:null,weight:null,activity:1.375,goal:"cut",unit:"kg",sleepTarget:7.5,stepsTarget:8000,trainTarget:4,tdee:null};
 
 // ================= 状态 =================
 var S = {
@@ -840,7 +843,8 @@ function calcTargets(b){
   var p=r0(w*pPerKg), f=r0(kcal*fatPct/9), c=Math.max(0,r0((kcal-p*4-f*9)/4));
   return {bmr:r0(bmr),tdee:r0(tdee),kcal:r0(kcal),p:p,c:c,f:f,fib:r0(kcal/1000*14)};
 }
-function expenditure(date){ var st=S.settings, b=calcBMR(st); if(b==null) return null; var a=rec("activity",date); if(a&&+a.active_kcal>0) return r0(b*1.2+ +a.active_kcal); return r0(b*(+st.activity||1.375)); }
+function expenditure(date){ var st=S.settings, b=calcBMR(st), a=rec("activity",date); if(b!=null&&a&&+a.active_kcal>0) return r0(b*1.2+ +a.active_kcal); if(+st.tdee>0) return r0(+st.tdee); if(b==null) return null; return r0(b*(+st.activity||1.375)); }
+function expMethod(date){ var st=S.settings, b=calcBMR(st), a=rec("activity",date); if(b!=null&&a&&+a.active_kcal>0) return "消耗 = 基础代谢 × 1.2 + 手表活动消耗"; if(+st.tdee>0) return "无手表数据，按设定的日消耗 "+r0(+st.tdee)+" kcal"; if(b==null) return "在设置里填身高体重年龄或日消耗后可估算"; return "消耗 = 基础代谢 × 活动系数"; }
 function weightKg(date){ var w=rec("weight",date); return w&&w.kg!=null?+w.kg:null; }
 function weightMA(date){ var s=0,n=0; for(var i=0;i<7;i++){ var w=weightKg(shiftDate(date,-i)); if(w!=null){ s+=w; n++; } } return n?s/n:null; }
 function series(days){ var out=[], today=todayStr(); for(var i=days-1;i>=0;i--){ var d=shiftDate(today,-i), t=totals(dayOf(d).entries), sl=rec("sleep",d), ac=rec("activity",d), wo=rec("workout",d), ex=expenditure(d);
@@ -892,7 +896,7 @@ function renderToday(){
   $("heroIntake").textContent = r0(tt.kcal).toLocaleString(); $("heroTarget").textContent = r0(st.kcal).toLocaleString();
   $("heroExp").textContent = ex==null?"—":ex.toLocaleString();
   var df = (ex==null||!tt.kcal)?null:ex-tt.kcal; var dEl=$("heroDeficit"); dEl.textContent = df==null?"—":(df>0?"−":"+")+r0(Math.abs(df)).toLocaleString(); dEl.className="v "+(df==null?"":df>0?"good":"bad");
-  $("heroMethod").textContent = ex==null?"在设置里填身高体重年龄后可估算消耗":(rec("activity",S.date)&&+rec("activity",S.date).active_kcal>0?"消耗 = 基础代谢 × 1.2 + 手表活动消耗":"消耗 = 基础代谢 × 活动系数");
+  $("heroMethod").textContent = expMethod(S.date);
   ["p","c","f","fib"].forEach(function(k){ var eaten=tt[k], tgt=+st[k]||0, diff=tgt-eaten, v=$(k+"Val"); v.className="val"+(diff<0?" over":""); v.innerHTML=esc(r0(Math.abs(diff)))+"<small>g "+(diff<0?"超了":"还差")+"</small>"; $(k+"Bar").style.width=Math.min(100,tgt?eaten/tgt*100:0)+"%"; $(k+"Ratio").textContent=r0(eaten)+" / "+r0(tgt)+" g"; });
   $("tip").textContent = tipText(tt, st);
   // tiles
@@ -1068,7 +1072,7 @@ function deleteEntry(id){ var day=dayOf(S.date); var e=day.entries.filter(functi
 // ================= AI 报告 =================
 function dayLine(d){ var t=totals(dayOf(d).entries), sl=rec("sleep",d), ac=rec("activity",d), wo=rec("workout",d), wt=rec("weight",d), ex=expenditure(d);
   return d.slice(5)+" "+WD[parseDate(d).getDay()]+"："+(dayOf(d).entries.length?("摄入 "+r0(t.kcal)+" kcal，蛋白 "+r0(t.p)+"，碳水 "+r0(t.c)+"，脂肪 "+r0(t.f)+"，纤维 "+r0(t.fib)):"饮食无记录")+(ex!=null?"；消耗约 "+ex:"")+(sl&&sl.minutes!=null?"；睡眠 "+minsToH(sl.minutes)+" 小时"+(sl.quality?"（质量 "+sl.quality+"/5）":""):"")+(ac&&ac.steps!=null?"；"+ac.steps+" 步":"")+(ac&&ac.active_kcal?"，活动消耗 "+r0(ac.active_kcal):"")+(wo?(wo.rest?"；休息日":"；训练 "+(wo.parts||[]).join("/")+(wo.duration?" "+wo.duration+" 分钟":"")):"")+(wt&&wt.kg!=null?"；体重 "+kgToUnit(+wt.kg)+" "+unitLbl():""); }
-function bodyLine(){ var st=S.settings, pr=profile(), b=[]; if(pr) b.push("用户 "+pr.name); b.push(st.sex==="f"?"女":"男"); if(st.age) b.push(st.age+" 岁"); if(st.height) b.push("身高 "+st.height+" cm"); if(st.weight) b.push("体重 "+st.weight+" kg"); b.push("目标："+(GOALS[st.goal]||"减脂")); var ct=calcTargets(st); if(ct) b.push("基础代谢约 "+ct.bmr+" kcal，每日消耗约 "+ct.tdee+" kcal"); return b.join("，"); }
+function bodyLine(){ var st=S.settings, pr=profile(), b=[]; if(pr) b.push("用户 "+pr.name); b.push(st.sex==="f"?"女":"男"); if(st.age) b.push(st.age+" 岁"); if(st.height) b.push("身高 "+st.height+" cm"); if(st.weight) b.push("体重 "+st.weight+" kg"); b.push("目标："+(GOALS[st.goal]||"减脂")); var ct=calcTargets(st); if(ct) b.push("基础代谢约 "+ct.bmr+" kcal"); if(+st.tdee>0) b.push("无手表数据时日消耗按 "+r0(+st.tdee)+" kcal 计"); else if(ct) b.push("每日消耗约 "+ct.tdee+" kcal"); return b.join("，"); }
 function targetsLine(){ var st=S.settings; return "热量 "+r0(st.kcal)+"，蛋白质 "+r0(st.p)+"，碳水 "+r0(st.c)+"，脂肪 "+r0(st.f)+"，膳食纤维 "+r0(st.fib||0)+"；睡眠 "+st.sleepTarget+" 小时，步数 "+st.stepsTarget+"，每周训练 "+st.trainTarget+" 天"; }
 function buildReport(){
   var st=S.settings, day=dayOf(S.date), tt=totals(day.entries), L=[];
@@ -1121,7 +1125,7 @@ function openSettings(){
   $("stName").value=pr?pr.name:""; $("stNewName").value="";
   $("stSex").value=st.sex||"m"; $("stAge").value=st.age||""; $("stH").value=st.height||""; $("stW").value=st.weight||""; $("stAct").value=String(st.activity||1.375); $("stGoal").value=st.goal||"cut";
   $("stK").value=st.kcal; $("stP").value=st.p; $("stC").value=st.c; $("stF").value=st.f; $("stFib").value=st.fib||"";
-  $("stUnit").value=st.unit||"kg"; $("stSleepT").value=st.sleepTarget||7.5; $("stStepsT").value=st.stepsTarget||8000; $("stTrainT").value=st.trainTarget||4;
+  $("stUnit").value=st.unit||"kg"; $("stTdee").value=st.tdee||""; $("stSleepT").value=st.sleepTarget||7.5; $("stStepsT").value=st.stepsTarget||8000; $("stTrainT").value=st.trainTarget||4;
   $("sbUrl").value=c.url||""; $("sbKey").value=c.key||""; $("sbStatus").textContent="";
   updatePct(); updateCalcInfo(); $("settingsOverlay").hidden=false;
 }
@@ -1133,7 +1137,7 @@ function saveSettingsFromForm(){
   var k=+$("stK").value,p=+$("stP").value,c=+$("stC").value,f=+$("stF").value,fb=+$("stFib").value, name=$("stName").value.trim();
   if(!(k>0)){ toast("热量目标要大于 0"); return; }
   var pr=profile(); if(pr&&name) pr.name=name;
-  S.settings=Object.assign({},DEFAULT_SETTINGS, bodyFromForm(), {kcal:k,p:p||0,c:c||0,f:f||0,fib:fb||0,unit:$("stUnit").value==="lb"?"lb":"kg",sleepTarget:+$("stSleepT").value||7.5,stepsTarget:+$("stStepsT").value||8000,trainTarget:+$("stTrainT").value||4});
+  S.settings=Object.assign({},DEFAULT_SETTINGS, bodyFromForm(), {kcal:k,p:p||0,c:c||0,f:f||0,fib:fb||0,unit:$("stUnit").value==="lb"?"lb":"kg",tdee:+$("stTdee").value||null,sleepTarget:+$("stSleepT").value||7.5,stepsTarget:+$("stStepsT").value||8000,trainTarget:+$("stTrainT").value||4});
   saveProfile(); $("settingsOverlay").hidden=true; renderAll(); toast("已保存");
 }
 
